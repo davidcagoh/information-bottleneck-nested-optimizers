@@ -4,6 +4,97 @@ import math
 import torch 
 import torch.nn as nn
 
+def gaussian_mi_bits(R, sigma=0.1, eps=1e-6, max_samples=5000, device=None):
+    """
+    Estimate I(T;X) in bits by:
+      I(T;X) ~= 0.5 * ( log det(Sigma_R + sigma^2 I) - d * log(sigma^2) ) / ln(2)
+    Args:
+      R: tensor [N, d] representations (float)
+      sigma: stddev of additive Gaussian noise (float)
+      eps: diagonal regularizer added to covariance for stability
+      max_samples: subsample if N very large
+      device: torch device, optional
+    Returns:
+      scalar float = estimated I(T;X) in bits
+    Notes:
+      - Assumes R deterministic; adding Gaussian noise gives finite estimates.
+      - If N < d covariance is low-rank -> regularization stabilizes det.
+    """
+    if device is None:
+        device = R.device
+    R = R.detach().to(device)
+    N, d = R.shape
+    if N > max_samples:
+        idx = torch.randperm(N, device=device)[:max_samples]
+        R = R[idx]
+        N = R.shape[0]
+
+    # center
+    mean = R.mean(dim=0, keepdim=True)
+    Rc = R - mean
+
+    # empirical covariance: (1/N) * Rc^T R c
+    cov = (Rc.T @ Rc) / float(N)  # [d, d]
+
+    # add sigma^2 I (noise) and tiny eps for numeric stability
+    sig2 = float(sigma) ** 2
+    cov_noisy = cov + (sig2 + eps) * torch.eye(d, device=device)
+
+    # stable log-det using slogdet
+    sign, logdet = torch.slogdet(cov_noisy)
+    if sign <= 0:
+        # fallback: add larger eps
+        extra = 1e-3
+        cov_noisy = cov + (sig2 + eps + extra) * torch.eye(d, device=device)
+        sign, logdet = torch.slogdet(cov_noisy)
+        if sign <= 0:
+            raise RuntimeError("Covariance not positive definite even after regularization.")
+
+    # log det of noise covariance: d * log(sigma^2 + eps)
+    logdet_noise = d * math.log(sig2 + eps)
+
+    # I in nats
+    I_nats = 0.5 * (logdet - logdet_noise)
+    # convert to bits
+    I_bits = I_nats / math.log(2.0)
+    return float(I_bits)
+
+class TrueCategoricalMI(nn.Module):
+    """
+    Computes I(T;Y) = H(Y) - H(Y|T)
+    using cross-entropy as an empirical estimator for H(Y|T).
+    The output is in *bits*, not nats.
+    """
+    def __init__(self, input_dim, num_labels, hidden_size=128):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(input_dim, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, num_labels)
+        )
+        self.num_labels = num_labels
+
+    def forward(self, inputs, labels):
+        logits = self.classifier(inputs)
+
+        # H(Y|T) estimated via CE (in nats)
+        ce = nn.functional.cross_entropy(logits, labels, reduction='mean')
+
+        # convert nats → bits: divide by ln(2)
+        H_Y_given_T = ce / np.log(2.0)
+
+        # H(Y) = log2(num_classes)
+        H_Y = np.log2(self.num_labels)
+
+        # MI = H(Y) - H(Y|T)
+        I = H_Y - H_Y_given_T.item()
+        return I
+
+    def learning_loss(self, inputs, labels):
+        # Train classifier to approximate p(y|t)
+        logits = self.classifier(inputs)
+        return nn.functional.cross_entropy(logits, labels)
+
 class CLUBForCategorical(nn.Module): # Update 04/27/2022
     '''
     This class provide a CLUB estimator to calculate MI upper bound between vector-like embeddings and categorical labels.

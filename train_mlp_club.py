@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from model import MLP
-from mi_estimators import CLUB, CLUBForCategorical
+from mi_estimators import CLUB, CLUBForCategorical, TrueCategoricalMI, gaussian_mi_bits
 from deep_momentum_optim.deep import DeepMomentum
 from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerTuple
@@ -66,9 +66,10 @@ def main():
 
     # Hyperparameters (edit here to control runs without CLI)
     # Choose from: 'SGD', 'AdamW', 'GDM', 'DMGD'
-    chosen_optim = 'AdamW'
+    chosen_optim = 'SGD'
     lr = 1e-3
-    epochs = 5
+    epochs = 3999
+    print(f"Using optimizer: {chosen_optim}, Epochs: {epochs}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = MLP().to(device)
@@ -119,6 +120,8 @@ def main():
 
     # Warm-start estimators (persist across epochs to reuse weights)
     warm_est_y = {i: None for i in range(num_layers)}
+    # Add separate optimizers for each layer's categorical MI estimator
+    mi_y_opts = {i: None for i in range(num_layers)}
     warm_est_x = {i: None for i in range(num_layers)}
 
     for ep in range(epochs):
@@ -180,22 +183,45 @@ def main():
 
 
         for i in range(num_layers):
-            R = torch.cat(layer_repr[i])
-                
-            # Initialize estimator if not existing, otherwise reuse and ensure it's on device
+            R = torch.cat(layer_repr[i])          # [N, d_T]
+            R = R.detach()
+
+            # ----- initialize estimator + optimizer -----
             if warm_est_y[i] is None:
-                warm_est_y[i] = CLUBForCategorical(R.shape[1], Y.max().item()+1, hidden_size=128).to(device)
+                warm_est_y[i] = TrueCategoricalMI(
+                    R.shape[1], 
+                    Y.max().item() + 1
+                ).to(device)
+                mi_y_opts[i] = torch.optim.Adam(warm_est_y[i].parameters(), lr=1e-3)
             else:
                 warm_est_y[i] = warm_est_y[i].to(device)
 
-            if warm_est_x[i] is None:
-                warm_est_x[i] = CLUB(R.shape[1], X.shape[1], hidden_size=128).to(device)
-            else:
-                warm_est_x[i] = warm_est_x[i].to(device)
+            # ----- train estimator -----
+            warm_est_y[i].train()
+            for _ in range(10):
+                idx = torch.randperm(R.shape[0])[:1024]
+                batch_R = R[idx]
+                batch_Y = Y[idx]
 
-            # Detach representations so CLUB training does not backprop through the model
-            mi_y_layers.append(estimate_mi(warm_est_y[i], R.detach(), Y))
-            mi_x_layers.append(estimate_mi(warm_est_x[i], R.detach(), X.detach()))
+                loss = warm_est_y[i].learning_loss(batch_R, batch_Y)
+                mi_y_opts[i].zero_grad()
+                loss.backward()
+                mi_y_opts[i].step()
+
+            # ----- evaluate I(T;Y) -----
+            warm_est_y[i].eval()
+            I_ty = warm_est_y[i](R, Y.detach())   # bits
+            mi_y_layers.append(I_ty)
+
+            # ----- compute Gaussian I(T;X) -----
+            I_tx = gaussian_mi_bits(
+                R, 
+                sigma=0.1, 
+                eps=1e-6, 
+                max_samples=3000,
+                device=device
+            )
+            mi_x_layers.append(I_tx)
 
         mi_y.append(mi_y_layers)
         mi_x.append(mi_x_layers)
@@ -212,220 +238,123 @@ def main():
         checkpoint_epochs.append(epoch_idx)
         train_acc_chkpts.append(train_acc)
         val_acc_chkpts.append(val_acc)
-
-        if epoch_idx % 10 ==0:
-            torch.save(model.state_dict(), f"checkpoints/checkpoint_model_{epoch_idx}.pt")
-            np.save(f"checkpoints/checkpoint_mi_x_{epoch_idx}.npy", np.array(mi_x))
-            np.save(f"checkpoints/checkpoint_mi_y_{epoch_idx}.npy", np.array(mi_y))
-
-            # --- Compute and save training/validation accuracy at this checkpoint ---
-
-
-            # save per-checkpoint accuracy arrays and aggregated arrays
-            np.save(f"checkpoints/checkpoint_acc_train_{epoch_idx}.npy", np.array(train_acc))
-            np.save(f"checkpoints/checkpoint_acc_val_{epoch_idx}.npy", np.array(val_acc))
-            np.save(f"checkpoints/checkpoint_acc_train_all.npy", np.array(train_acc_chkpts))
-            np.save(f"checkpoints/checkpoint_acc_val_all.npy", np.array(val_acc_chkpts))
-            np.save(f"checkpoints/checkpoint_epochs.npy", np.array(checkpoint_epochs))
-
-            # --- Plot in mi_toy style for current progress and save per-epoch ---
-            fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-
-            # Trajectories (only plot epochs completed so far)
-            ax = axes[0]
-            epoch_colors = plt.cm.viridis(np.linspace(0, 1, epochs))
-            for i in range(num_layers):
-                # plot individual points colored by epoch
-                for ep_idx in range(epoch_idx):
-                    ax.plot(ep_idx, mi_x[ep_idx][i], marker='o', color=epoch_colors[ep_idx])
-                    ax.plot(ep_idx, mi_y[ep_idx][i], marker='s', color=epoch_colors[ep_idx])
-
-                # draw connecting lines for this layer across epochs completed so far
-                xs_traj = list(range(epoch_idx))
-                ys_x = [mi_x[e][i] for e in range(epoch_idx)]
-                ys_y = [mi_y[e][i] for e in range(epoch_idx)]
-                layer_color = plt.cm.tab10(i)
-                # connect X trajectory (solid)
-                ax.plot(xs_traj, ys_x, linestyle='-', color=layer_color, alpha=0.8)
-                # connect Y trajectory with dashed line
-                ax.plot(xs_traj, ys_y, linestyle='--', color=layer_color, alpha=0.8)
-            # add legend for trajectories with composite handles (solid + dashed) per layer
-            handles = []
-            labels = []
-            for i in range(num_layers):
-                layer_color = plt.cm.tab10(i)
-                line_solid = Line2D([0], [0], color=layer_color, lw=2, linestyle='-')
-                line_dash = Line2D([0], [0], color=layer_color, lw=2, linestyle='--')
-                handles.append((line_solid, line_dash))
-                labels.append(f"Layer {i+1}")
-            ax.legend(handles, labels, handler_map={tuple: HandlerTuple()})
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Mutual Information (bits)")  # instead of just "Mutual Information"
-            ax.set_title(f"Estimated MI ({optimizer_name}) — Epoch {epoch_idx}/{epochs} — lr={lr}")
-
-            # Information plane scatter
-            ax2 = axes[1]
-            for i in range(num_layers):
-                xs = [ep[i] for ep in mi_x]
-                ys = [ep[i] for ep in mi_y]
-                # scatter colored by epoch (no legend label)
-                ax2.scatter(xs, ys, c=np.linspace(0,1,len(xs)), cmap='viridis', s=60)
-                # connect the points in temporal order and attach label to the line
-                layer_color = plt.cm.tab10(i)
-                ax2.plot(xs, ys, linestyle='-', color=layer_color, alpha=0.8, label=f"Layer {i+1}")
-                # highlight last point
-                ax2.scatter(xs[-1], ys[-1], color='red', s=120, edgecolors='k')
-            ax2.set_xlabel("I(repr; X)")
-            ax2.set_ylabel("I(repr; Y)")
-            ax2.axhline(y=3.32, color='red', linestyle=':', label='H(Y) = log₂(10)', alpha=0.5)
-            ax2.set_title(f"Information Plane ({optimizer_name}) — Epoch {epoch_idx}/{epochs} — lr={lr}")
-            ax2.legend()
-
-            # Accuracy subplot (right)
-            ax_acc = axes[2]
-            if len(checkpoint_epochs) > 0:
-                ax_acc.plot(checkpoint_epochs, train_acc_chkpts, '-o', label='Train Acc')
-                ax_acc.plot(checkpoint_epochs, val_acc_chkpts, '-s', label='Val Acc')
-            else:
-                # fallback: plot current epoch accuracies as single point
-                ax_acc.plot([epoch_idx], [train_acc], '-o', label='Train Acc')
-                ax_acc.plot([epoch_idx], [val_acc], '-s', label='Val Acc')
-            ax_acc.set_xlabel('Epoch')
-            ax_acc.set_ylabel('Accuracy')
-            ax_acc.set_ylim(0, 1)
-            ax_acc.set_title(f"Accuracy ({optimizer_name}) up to epoch {epoch_idx} — lr={lr}")
-            ax_acc.legend()
-
-            plt.tight_layout()
-            plt.savefig(f"checkpoints/mi_acc_plot_{optimizer_name}_epoch{epoch_idx}_of{epochs}_lr{safe_lr}.png")
-            plt.close(fig)
-
-            # --- Plot in mi_toy style for current progress and save per-epoch ---
-            fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-            # Trajectories (only plot epochs completed so far)
-            ax = axes[0]
-            epoch_colors = plt.cm.viridis(np.linspace(0, 1, epochs))
-            for i in range(num_layers):
-                # plot individual points colored by epoch
-                for ep_idx in range(epoch_idx):
-                    ax.plot(ep_idx, mi_x[ep_idx][i], marker='o', color=epoch_colors[ep_idx])
-                    ax.plot(ep_idx, mi_y[ep_idx][i], marker='s', color=epoch_colors[ep_idx])
-
-                # draw connecting lines for this layer across epochs completed so far
-                xs_traj = list(range(epoch_idx))
-                ys_x = [mi_x[e][i] for e in range(epoch_idx)]
-                ys_y = [mi_y[e][i] for e in range(epoch_idx)]
-                layer_color = plt.cm.tab10(i)
-                # connect X trajectory (solid)
-                ax.plot(xs_traj, ys_x, linestyle='-', color=layer_color, alpha=0.8)
-                # connect Y trajectory with dashed line
-                ax.plot(xs_traj, ys_y, linestyle='--', color=layer_color, alpha=0.8)
-            # add legend for trajectories with composite handles (solid + dashed) per layer
-            handles = []
-            labels = []
-            for i in range(num_layers):
-                layer_color = plt.cm.tab10(i)
-                line_solid = Line2D([0], [0], color=layer_color, lw=2, linestyle='-')
-                line_dash = Line2D([0], [0], color=layer_color, lw=2, linestyle='--')
-                handles.append((line_solid, line_dash))
-                labels.append(f"Layer {i+1}")
-            ax.legend(handles, labels, handler_map={tuple: HandlerTuple()})
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Mutual Information (bits)")  # instead of just "Mutual Information"
-            ax.set_title(f"Estimated MI ({optimizer_name}) — Epoch {epoch_idx}/{epochs} — lr={lr}")
-
-            # Information plane scatter
-            ax2 = axes[1]
-            for i in range(num_layers):
-                xs = [ep[i] for ep in mi_x]
-                ys = [ep[i] for ep in mi_y]
-                # scatter colored by epoch (no legend label)
-                ax2.scatter(xs, ys, c=np.linspace(0,1,len(xs)), cmap='viridis', s=60)
-                # connect the points in temporal order and attach label to the line
-                layer_color = plt.cm.tab10(i)
-                ax2.plot(xs, ys, linestyle='-', color=layer_color, alpha=0.8, label=f"Layer {i+1}")
-                # highlight last point
-                ax2.scatter(xs[-1], ys[-1], color='red', s=120, edgecolors='k')
-            ax2.set_xlabel("I(repr; X)")
-            ax2.set_ylabel("I(repr; Y)")
-            ax2.axhline(y=3.32, color='red', linestyle=':', label='H(Y) = log₂(10)', alpha=0.5)
-            ax2.set_title(f"Information Plane ({optimizer_name}) — Epoch {epoch_idx}/{epochs} — lr={lr}")
-            ax2.legend()
-
-            plt.tight_layout()
-            safe_lr = str(lr).replace('.', 'p')
-            plt.savefig(f"checkpoints/mi_plot_{optimizer_name}_epoch{epoch_idx}_of{epochs}_lr{safe_lr}.png")
-            plt.close(fig)
-
-    # --- Plot in mi_toy style with accuracy as a third subplot ---
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-
-    # Trajectories (left)
-    ax = axes[0]
+        print(f"  Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")  
+        
+    # --- Create figure ---
+    # Change to (2, 2) for a 2x2 grid
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10)) # Adjust figsize for better viewing
+    
+    # Flatten the axes array for easier indexing: axes[0, 0] becomes axes[0], etc.
+    axes = axes.flatten() 
+    
     epoch_colors = plt.cm.viridis(np.linspace(0, 1, epochs))
-    for i in range(num_layers):
-        for ep_idx in range(epochs):
-            ax.plot(ep_idx, mi_x[ep_idx][i], marker='o', color=epoch_colors[ep_idx])
-            ax.plot(ep_idx, mi_y[ep_idx][i], marker='s', color=epoch_colors[ep_idx])
-        # draw connecting lines (solid for X, dashed for Y)
-        xs_traj = list(range(epochs))
-        ys_x = [mi_x[e][i] for e in range(epochs)]
-        ys_y = [mi_y[e][i] for e in range(epochs)]
-        layer_color = plt.cm.tab10(i)
-        ax.plot(xs_traj, ys_x, linestyle='-', color=layer_color, alpha=0.8)
-        ax.plot(xs_traj, ys_y, linestyle='--', color=layer_color, alpha=0.8)
-    # composite legend handles for final plot
-    handles = []
-    labels = []
-    for i in range(num_layers):
-        layer_color = plt.cm.tab10(i)
-        line_solid = Line2D([0], [0], color=layer_color, lw=2, linestyle='-')
-        line_dash = Line2D([0], [0], color=layer_color, lw=2, linestyle='--')
-        handles.append((line_solid, line_dash))
-        labels.append(f"Layer {i+1}")
-    ax.legend(handles, labels, handler_map={tuple: HandlerTuple()})
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Mutual Information (bits)")  # instead of just "Mutual Information"
-    ax.set_title(f"Estimated MI ({optimizer_name}) — {epochs} epochs — lr={lr}")
+    layer_colors = [plt.cm.tab10(i % 10) for i in range(num_layers)]
 
-    # Information plane scatter (middle)
-    ax2 = axes[1]
+    # ============================================================
+    # 1. I(T;X) vs EPOCH (Top-Left Panel: axes[0])
+    # ============================================================
+    ax_itx = axes[0] 
+
     for i in range(num_layers):
+        col = layer_colors[i]
+
+        # Extract per-layer sequences across epochs
+        xs = np.arange(epochs)
+        ys_x = [mi_x[e][i] for e in range(epochs)]
+
+        # Plot lines
+        ax_itx.plot(xs, ys_x, '-', color=col, lw=2, alpha=0.9, label=f"Layer {i+1}")
+
+        # Overlay colored epoch markers (epoch → color)
+        for e in range(epochs):
+            ax_itx.plot(xs[e], ys_x[e], 'o', color=epoch_colors[e])
+
+    ax_itx.legend(title="Layers")
+    ax_itx.set_xlabel("Epoch")
+    ax_itx.set_ylabel("I(T;X) (bits)")
+    ax_itx.set_title(f"I(T;X) Trajectories — {optimizer_name} (lr={lr})")
+
+
+    # ============================================================
+    # 2. I(T;Y) vs EPOCH (Top-Right Panel: axes[1])
+    # ============================================================
+    ax_ity = axes[1] 
+
+    for i in range(num_layers):
+        col = layer_colors[i]
+
+        # Extract per-layer sequences across epochs
+        xs = np.arange(epochs)
+        ys_y = [mi_y[e][i] for e in range(epochs)]
+
+        # Plot lines
+        ax_ity.plot(xs, ys_y, '--', color=col, lw=2, alpha=0.9, label=f"Layer {i+1}")
+
+        # Overlay colored epoch markers (epoch → color)
+        for e in range(epochs):
+            ax_ity.plot(xs[e], ys_y[e], 's', color=epoch_colors[e])
+
+    ax_ity.legend(title="Layers")
+    ax_ity.set_xlabel("Epoch")
+    ax_ity.set_ylabel("I(T;Y) (bits)")
+    ax_ity.set_title(f"I(T;Y) Trajectories")
+    
+    
+    # ============================================================
+    # 3. INFORMATION PLANE (Bottom-Left Panel: axes[2])
+    # ============================================================
+    ax2 = axes[2] 
+
+    for i in range(num_layers):
+        col = layer_colors[i]
+
         xs = [ep[i] for ep in mi_x]
         ys = [ep[i] for ep in mi_y]
-        # scatter colored by epoch (no legend label)
-        ax2.scatter(xs, ys, c=np.linspace(0,1,epochs), cmap='viridis', s=60)
-        # connect points and label the connecting line so legend uses its color
-        layer_color = plt.cm.tab10(i)
-        ax2.plot(xs, ys, linestyle='-', color=layer_color, alpha=0.8, label=f"Layer {i+1}")
-        ax2.scatter(xs[-1], ys[-1], color='red', s=120, edgecolors='k')
-    ax2.set_xlabel("I(repr; X)")
-    ax2.set_ylabel("I(repr; Y)")
-    ax2.axhline(y=3.32, color='red', linestyle=':', label='H(Y) = log₂(10)', alpha=0.5)
-    ax2.set_title(f"Information Plane ({optimizer_name}) — {epochs} epochs — lr={lr}")
+
+        # Epoch-colored scatter
+        sc = ax2.scatter(xs, ys, c=np.linspace(0,1,epochs),
+                        cmap='viridis', s=60)
+
+        # Connect trajectory
+        ax2.plot(xs, ys, '-', color=col, lw=2, alpha=0.8, label=f"Layer {i+1}")
+
+        # Mark final epoch
+        ax2.scatter(xs[-1], ys[-1], color='red', s=120, edgecolors='black', zorder=5)
+
+    # Note: np.log2(10) is the maximum possible I(T;Y) for 10 classes
+    ax2.axhline(y=np.log2(10), color='red', linestyle=':', alpha=0.4,
+                label="$H(Y)=\\log_2(10)$") 
+    ax2.set_xlabel("I(T;X)")
+    ax2.set_ylabel("I(T;Y)")
+    ax2.set_title("Information Plane")
     ax2.legend()
 
-    # Accuracy subplot (right)
-    ax_acc = axes[2]
-    if len(checkpoint_epochs) > 0:
-        ax_acc.plot(checkpoint_epochs, train_acc_chkpts, '-o', label='Train Acc')
-        ax_acc.plot(checkpoint_epochs, val_acc_chkpts, '-s', label='Val Acc')
-    else:
-        # fallback: plot final accuracies as a single point
-        final_train = compute_accuracy(model, probe_loader, device)
-        final_val = compute_accuracy(model, val_loader, device)
-        ax_acc.plot([epochs], [final_train], '-o', label='Train Acc')
-        ax_acc.plot([epochs], [final_val], '-s', label='Val Acc')
-    ax_acc.set_xlabel('Epoch')
-    ax_acc.set_ylabel('Accuracy')
-    ax_acc.set_ylim(0, 1)
-    ax_acc.set_title(f"Accuracy ({optimizer_name}) — {epochs} epochs — lr={lr}")
-    ax_acc.legend()
 
+    # ============================================================
+    # 4. ACCURACY PLOT (Bottom-Right Panel: axes[3])
+    # ============================================================
+    ax3 = axes[3] 
+
+    if len(checkpoint_epochs) > 0:
+        ax3.plot(checkpoint_epochs, train_acc_chkpts, '-o', label='Train Acc')
+        ax3.plot(checkpoint_epochs, val_acc_chkpts, '-s', label='Val Acc')
+    else:
+        # Assuming compute_accuracy, model, probe_loader, device, val_loader are defined
+        final_train = compute_accuracy(model, probe_loader, device) 
+        final_val = compute_accuracy(model, val_loader, device)
+        ax3.plot([epochs], [final_train], 'o', label='Train Acc')
+        ax3.plot([epochs], [final_val], 's', label='Val Acc')
+
+    ax3.set_xlabel("Epoch")
+    ax3.set_ylabel("Accuracy")
+    ax3.set_ylim(0, 1.0)
+    ax3.set_title("Accuracy")
+    ax3.legend()
+
+    # ============================================================
     plt.tight_layout()
-    safe_lr = str(lr).replace('.', 'p')
-    plt.savefig(f"output/mi_plot_{optimizer_name}_epochs{epochs}_lr{safe_lr}.png")
+    safe_lr = str(lr).replace(".", "p")
+    plt.savefig(f"output/mi_4panel_{optimizer_name}_epochs{epochs}_lr{safe_lr}_2x2.png")
     plt.close(fig)
 
 if __name__ == "__main__":
