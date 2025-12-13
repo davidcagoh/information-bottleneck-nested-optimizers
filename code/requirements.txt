@@ -1,0 +1,8 @@
+# Minimal requirements for running the code/ scripts
+# Pinned to the versions observed in code/requirements.txt where available
+numpy==2.3.4
+matplotlib==3.10.7
+torch==2.9.1
+torchvision==0.24.1
+# Pillow is pulled in by torchvision but can be added explicitly
+Pillow==12.0.0

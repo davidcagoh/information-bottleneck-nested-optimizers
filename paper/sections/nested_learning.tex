@@ -1,0 +1,55 @@
+\section{Introduction}
+Deep learning training can be interpreted as a hierarchy of nested optimization problems, each operating on distinct timescales. At the lowest level, parameters $\W$ are updated frequently based on the immediate input $\x_t$, while higher-level components aggregate these updates more slowly, effectively compressing the history of past inputs into concise summaries. Each nested layer thus acts as an associative memory, encoding and propagating information that shapes the dynamics of faster, lower-level updates.
+Key notation: $\W$ (weights), $\x_t$ (input at time $t$), $\g_t = \nabla L(\W_t; \x_t)$ (gradient), $\mom_t$ (momentum), $\eta$ (learning rate).
+
+\section{Summary: Nested Learning Paper}
+
+\subsection{From Gradient Descent to Momentum}
+Standard gradient descent performs a single-level optimization over weights:
+\begin{equation}
+\W_{t+1} = \W_t - \eta \g_t
+\end{equation}
+Here, updates rely solely on the instantaneous gradient, with no explicit mechanism for capturing or compressing past information.
+
+Adding momentum introduces a second, slower optimization layer:
+\begin{align}
+\W_{t+1} &= \W_t + \mom_{t+1} \\
+\mom_{t+1} &= \mom_t - \eta \g_t
+\end{align}
+Momentum can itself be interpreted as solving a proximal objective:
+\begin{equation}
+\mom_{t+1} = \argmin_{\mom} \langle \mom, \g_t \rangle + \frac{1}{2\eta}\|\mom - \mom_t\|^2
+\end{equation}
+\textbf{Insight:} The momentum term $\mom$ functions as an associative memory, compressing the history of past gradients into a smoothed signal that guides the weight updates $\W_{t+1}$. This nested structure delineates two distinct gradient flows: rapid updates at the weight level and slower, memory-driven updates at the momentum level. Recognizing this separation clarifies how higher-order gradient information can be systematically captured and leveraged within the optimizer.
+
+\subsection{Deeper Nested Optimizers}
+Extending beyond momentum, higher-order optimizers such as Adam or RMSProp introduce additional internal states (e.g., adaptive second-moment estimates) that operate on slower timescales than $\mom_t$. Denoting these higher-level states as $\vt_t$, we can write:
+\begin{align}
+\W_{t+1} &= \W_t + \mom_{t+1} \\
+\mom_{t+1} &= \mom_t - \eta \frac{\g_t}{\sqrt{\vt_t + \epsilon}} \\
+\vt_{t+1} &= \beta \vt_t + (1-\beta)\g_t^2
+\end{align}
+Each new nested state $\vt_t$ acts as an associative memory of past gradient magnitudes, biasing the effective step size and implicitly shaping the evolution of representations. This hierarchy can be viewed as a multi-timescale memory network in which each layer compresses different aspects of the gradient trajectory.
+
+Extensions enable deeper nesting:
+
+\textbf{Preconditioned momentum:} $m_{t+1} = \alpha m_t - \eta P_t g_t$ maps gradients to structured values.  
+
+\textbf{Delta-rule objective:} $\min_m ||m g_t - P_t||^2$ improves memory capacity.  
+
+\textbf{Deep momentum (DMGD):} Replacing linear $m$ with an MLP enables nonlinear gradient compression across timescales.
+
+
+\subsection{Self-Modifying Networks}
+Nested optimization extends to architecture. Linear attention's update $M_{t+1} = M_t + v_t k_t^T$ is equivalent to one gradient step on $\min_M \langle M k_t, v_t\rangle + ||M-M_t||^2$.  
+Self-modifying layers generalize this:
+\begin{equation}
+\min_W ||W x_t - g_t||^2 \quad (X)
+\end{equation}
+\begin{equation}
+W_{t+1} = W_t(I - x_t x_t^T) - \eta g_t x_t^T \quad (Y)
+\end{equation}
+The $(I - x_t x_t^T)$ term enables input-dependent updates, preserving relational structure and compressing representation information.
+
+\subsection{Continuum Memory}
+Traditional feedforward layers operate at a single timescale. The Continuum Memory System (CMS) employs multiple MLPs $\theta^{(\ell)}$ updating at frequencies $f_\ell$, compressing knowledge from different timescales. Classifiers benefit from multi-rate layer updates.

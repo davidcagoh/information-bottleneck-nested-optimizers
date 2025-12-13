@@ -1,0 +1,36 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{csquotes}
+\usepackage[backend=biber,style=authoryear]{biblatex}
+\addbibresource{bib/refs.bib}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{3pt}
+
+% Custom commands for notation
+\newcommand{\W}{W}
+\newcommand{\x}{x}
+\newcommand{\g}{g}
+\newcommand{\mom}{m}
+\newcommand{\M}{M}
+\newcommand{\argmin}{\text{argmin}}
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\vt}{\mathbf{v}} % in preamble
+
+\title{\vspace{-10mm}\textbf{An Information-Theoretic Investigation of Nested Learning}}
+\author{David Goh \\ University of Toronto}
+\date{\today}
+
+\begin{document}
+\maketitle
+\vspace{-8mm}
+
+\input{sections/nested_learning}
+\input{sections/methods}
+
+\printbibliography
+\end{document}

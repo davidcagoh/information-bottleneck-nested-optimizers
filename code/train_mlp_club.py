@@ -52,7 +52,7 @@ def compute_accuracy(model, loader, device):
             total += yb.size(0)
     return correct / total if total > 0 else 0.0
 
-def main():
+def main(chosen_optim: str, epochs: int): # <--- ADD ARGUMENTS HERE
     set_seed(0)
 
     transform = transforms.ToTensor()
@@ -66,9 +66,9 @@ def main():
 
     # Hyperparameters (edit here to control runs without CLI)
     # Choose from: 'SGD', 'AdamW', 'GDM', 'DMGD'
-    chosen_optim = 'SGD'
+    # chosen_optim = 'SGD'
     lr = 1e-3
-    epochs = 3999
+    # epochs = 3999
     print(f"Using optimizer: {chosen_optim}, Epochs: {epochs}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -356,6 +356,3 @@ def main():
     safe_lr = str(lr).replace(".", "p")
     plt.savefig(f"output/mi_4panel_{optimizer_name}_epochs{epochs}_lr{safe_lr}_2x2.png")
     plt.close(fig)
-
-if __name__ == "__main__":
-    main()

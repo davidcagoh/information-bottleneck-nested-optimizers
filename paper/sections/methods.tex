@@ -1,0 +1,45 @@
+\section{Connection to Information Bottleneck Theory}
+Tishby's Information Bottleneck (IB) framework characterizes the tradeoff between representation compression $I(T;X)$ and predictive relevance $I(T;Y)$. We hypothesize that deeper nested optimizers induce stronger gradient compression, effectively accelerating the movement of internal representations $T$ along the information plane.
+
+Specifically, if $T^l$ denotes the representation at layer $l$, the nesting depth modulates how $T^l$ evolves:
+\begin{equation}
+T^l_{t+1} = T^l_t + f_\text{nest}(T^l_t, \g^l_t, \mom^l_t, \vt^l_t)
+\end{equation}
+where $f_\text{nest}$ encodes the hierarchical memory updates of the nested optimizer. Empirically, we expect that increasing nesting depth:
+\begin{enumerate}
+\item Compresses $I(T^l;X)$ more rapidly by filtering out gradient noise.
+\item Preserves or enhances $I(T^l;Y)$, since predictive features are reinforced through aggregated memory.
+\item Alters the trajectory on the information plane, potentially generating steeper compression phases.
+\end{enumerate}
+This perspective provides a concrete mechanism linking optimizer architecture to representation learning dynamics, bridging nested optimization and the IB principle in a testable framework.
+
+\begin{figure*}[t] % [t] attempts to place it at the top of the page
+    \centering
+    % Adjust the width to almost the text width, leaving a small margin
+    \includegraphics[width=0.9\textwidth]{figures/figure1.png} 
+    \caption{Empirical Validation of Nested Learning: Information Bottleneck Trajectories. The figure compares the dynamics of the AdamW (Standard Nested) and DMGD (Deep Nested) optimizers. Note the distinct compression phase (sustained $I(T;X)$ decrease) observed only in the DMGD trajectories after Epoch 150 (bottom-right panel), confirming that deeper nesting effectively filters descriptive noise from representations.}
+    \label{fig:ib_comparison_full}
+\end{figure*}
+
+\section{Novel Empirical Investigation: IB Dynamics in Nested Optimizers}
+
+To validate the "associative memory" and "multi-timescale" claims of the Nested Learning framework, we designed a novel experiment comparing the Information Bottleneck (IB) trajectories of standard optimizers against Deep Momentum Gradient Descent (DMGD).
+
+\subsection{Experimental Methodology}
+We implemented a highly bottlenecked MLP architecture designed to force aggressive representation compression: $784 \to 12 \to 10 \to 8 \to 6 \to 4$. We utilized \textit{tanh} activations at every hidden layer to ensure bounded activations for stable Mutual Information (MI) estimation. The network was trained on MNIST for 3999 epochs using four optimization regimes: SGD, GDM, AdamW, and DMGD. We tracked the evolution of the information plane ($I(T;X)$ vs. $I(T;Y)$) across all five hidden layers using a binning-based MI estimator.
+
+\subsection{Results: The Nested Compression Phase}
+Our results reveal a qualitative shift in learning dynamics unique to the deeply nested optimizer, summarized in Figure 1.
+
+\textbf{1. The Failure of Traditional Compression:} In SGD, GDM, and AdamW, we did not observe a significant compression phase. As seen in the AdamW trajectories, $I(T;X)$ (complexity) rose asymptotically across all layers, plateauing above 10 bits within the first 300 epochs and remaining steady until $t=3999$. While $I(T;Y)$ (sufficiency) maximized quickly, these networks failed to "forget" irrelevant input noise in the terminal phase.
+
+\textbf{2. DMGD’s Unique Compression Phase:} DMGD exhibited a distinct two-phase trajectory in deep layers ($L_4, L_5$).
+\begin{itemize}
+    \item \textbf{Phase 1 (Expansion):} $I(T;X)$ increases until approximately Epoch 150 as the model captures features.
+    \item \textbf{Phase 2 (Compression):} Post-Epoch 150, $I(T;X)$ in the penultimate layer enters a sustained decrease, settling near 7 bits. Most strikingly, the final hidden layer ($L_5$) approaches an $I(T;X)$ of 0 bits asymptotically throughout the 3999 epochs.
+\end{itemize}
+
+\textbf{3. Generalization and Stability:} While DMGD reached a similar terminal accuracy to AdamW, it maintained a significantly tighter gap between training and validation accuracy. We observed high-frequency fluctuations in $I(T;Y)$ for the penultimate layer of DMGD between Epochs 500 and 3900; however, as the final layer accuracy and $I(T;Y)$ remained stable, we hypothesize this represents internal "dynamic re-encoding" facilitated by the nested MLP optimizer.
+
+\subsection{Conclusion}
+This experiment provides empirical evidence that deep nesting in optimizers is a sufficient condition to trigger a physical compression phase in deep representations. While standard adaptive methods like AdamW effectively manage step sizes, the deeply nested structure of DMGD successfully filters descriptive noise ($I(T;X)$) from predictive signals ($I(T;Y)$) in the terminal training phase, validating the paper's theory of optimizers as multi-timescale memory systems.

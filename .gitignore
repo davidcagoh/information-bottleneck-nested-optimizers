@@ -1,5 +1,13 @@
-/logs
-/checkpoints
-/__pycache__/
-/MNIST
+/code/logs
+/code/checkpoints
+/code/__pycache__/
+/code/MNIST
 **.pyc
+/venv
+/code/output
+*.aux
+*.log
+*.out
+*.toc
+*.bak
+*.synctex.gz
