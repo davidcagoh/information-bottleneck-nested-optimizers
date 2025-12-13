@@ -18,7 +18,7 @@ The central finding is the qualitative difference in the deep-layer compression 
 | **AdamW / GDM** | Rises asymptotically, plateaus above 10 bits. | Retains descriptive noise; lacks sustained compression. |
 | **DMGD** | Rises, then enters a **sustained decrease** (compression phase) post-Epoch 150, approaching 0 bits. | Nested memory successfully filters noise, achieving near-perfect compression. |
 
-The figure used in the report, highlighting this comparison, is available in the results directory: [Figure 1: IB Trajectory Comparison](paper/figures/figure1.png)
+The figure used in the report, highlighting this comparison, is available in the paper directory: [Figure 1: IB Trajectory Comparison](paper/figures/figure1.png)
 
 ## 🚀 Reproduction Instructions
 
