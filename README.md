@@ -42,6 +42,32 @@ To train the MLP on MNIST using the four optimizers and log the mutual informati
 python code/train_ib_analysis.py 
 ```
 
+## 📚 Related Work
+
+This project builds on prior work in nested learning dynamics and information-theoretic analysis of neural representations.
+
+1. **Behrouz, A., Razaviyayn, M., Zhong, P., & Mirrokni, V.** (2025).  
+   *Nested Learning: The Illusion of Deep Learning Architectures.*  
+   arXiv:2512.24695. https://doi.org/10.48550/arXiv.2512.24695
+
+2. **Cheng, P.** (2025).  
+   *Linear95/CLUB* (Jupyter Notebook implementation).  
+   https://github.com/Linear95/CLUB  
+   (Original work published 2020)
+
+3. **Cheng, P., Hao, W., Dai, S., Liu, J., Gan, Z., & Carin, L.** (2020).  
+   *CLUB: A Contrastive Log-ratio Upper Bound of Mutual Information.*  
+   arXiv:2006.12013. https://doi.org/10.48550/arXiv.2006.12013
+
+4. **Lyu, Z., Aminian, G., & Rodrigues, M. R. D.** (2023).  
+   *On Neural Networks Fitting, Compression, and Generalization Behavior via Information-Bottleneck-like Approaches.*  
+   *Entropy*, 25(7), 1063. https://doi.org/10.3390/e25071063
+
+5. **McCleary, K.** (2026).  
+   *kmccleary3301/nested_learning* (Python implementation).  
+   https://github.com/kmccleary3301/nested_learning  
+   (Original work published 2025)
+
 ## Licensing
 
 This project is released under the MIT License. See the `LICENSE` file for details.
