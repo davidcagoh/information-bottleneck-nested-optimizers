@@ -1,73 +1,76 @@
-# Deep Learning Nested Optimization: Information Bottleneck Analysis of DMGD
+# information-bottleneck-nested-optimizers
 
-This repository contains the source code, data logs, and the final academic report for an empirical investigation into the dynamics of deeply nested optimizers (specifically Deep Momentum Gradient Descent, DMGD) using the Information Bottleneck (IB) framework.
+**information-bottleneck-nested-optimizers** is an empirical research project on optimizer dynamics through the lens of the **Information Bottleneck (IB)** framework. The repository studies whether deeply nested optimization schemes—especially **Deep Momentum Gradient Descent (DMGD)**—produce the representation-compression behavior predicted by information-theoretic accounts of learning.
 
-The project validates the theory that optimizers can be interpreted as multi-timescale associative memory systems, demonstrating that **DMGD uniquely induces the representation compression phase** predicted by IB theory.
+The project combines experiment code, logged outputs, figures, and the final write-up in a single repository. It is intended to be read as a compact research artifact rather than only a code dump.
 
-## 📄 Final Report
+| Repository focus | Description |
+|---|---|
+| Research domain | Optimization dynamics, representation learning, and information-theoretic analysis |
+| Central question | Do nested optimizers induce a distinct compression phase relative to standard baselines? |
+| Main experimental setting | Bottlenecked neural architectures trained on MNIST |
+| Key comparison | DMGD versus optimizers such as AdamW and gradient descent with momentum |
+| Portfolio value | Shows experimental ML research, careful comparative analysis, and technical reporting |
 
-The complete two-page report, including the paper summary and the novel empirical investigation, is available here:
-- **[Download Final PDF Report](paper/nested_learning.pdf)**
+## Main finding
 
-## 📊 Key Finding: The Nested Compression Phase
+The central empirical result is that **DMGD exhibits a sustained deep-layer compression phase** in the bottlenecked architecture, whereas the comparison optimizers do not show the same qualitative behavior. In the IB framing, this matters because compression is interpreted as the optimizer learning to retain task-relevant structure while discarding descriptive noise.
 
-The central finding is the qualitative difference in the deep-layer compression trajectory observed in the bottlenecked architecture ($784 \to 4$).
+| Optimizer | Deep-layer \(I(T;X)\) trajectory | Interpretation |
+|---|---|---|
+| AdamW / GDM | Rises and plateaus at a relatively high information level | Retains more descriptive noise and does not show sustained compression |
+| DMGD | Rises, then enters a persistent compression phase after later epochs | Supports the nested-memory interpretation and aligns with the IB-style prediction |
 
-| Optimizer | Deep Layer $I(T;X)$ Trajectory | Interpretation |
-| :--- | :--- | :--- |
-| **AdamW / GDM** | Rises asymptotically, plateaus above 10 bits. | Retains descriptive noise; lacks sustained compression. |
-| **DMGD** | Rises, then enters a **sustained decrease** (compression phase) post-Epoch 150, approaching 0 bits. | Nested memory successfully filters noise, achieving near-perfect compression. |
+The figure used in the report to highlight this contrast is available at [paper/figures/figure1.png](paper/figures/figure1.png), and the final write-up is available at [paper/nested_learning.pdf](paper/nested_learning.pdf).
 
-The figure used in the report, highlighting this comparison, is available in the paper directory: [Figure 1: IB Trajectory Comparison](paper/figures/figure1.png)
+## Why this repository matters
 
-## 🚀 Reproduction Instructions
+The project sits at the intersection of optimization theory and empirical representation analysis. Rather than comparing optimizers only by accuracy or loss, it studies how they shape internal representations over training time. That makes the repository useful for readers interested in learning dynamics, not just endpoint performance.
 
-### Prerequisites
+From a portfolio perspective, the value lies in the full loop: formulating a theoretical question, implementing comparative experiments, logging information-theoretic quantities, and packaging the results in a concise research report.
 
-1.  Clone this repository:
-    ```bash
-    git clone https://github.com/davidcagoh/information-bottleneck-nested-optimizers
-    cd information-bottleneck-nested-optimizers
-    ```
-2.  Install all required Python dependencies:
-    ```bash
-    pip install -r code/requirements.txt
-    ```
+| Capability area | How it appears here |
+|---|---|
+| Experimental ML research | Controlled comparison across multiple optimizers and epoch budgets |
+| Information-theoretic analysis | Use of mutual-information-style quantities to interpret learned representations |
+| Reproducibility | Code, figures, and paper materials are kept together in one repository |
+| Research communication | The final report and supporting figures make the result easy to inspect |
 
-### Running the Experiment
+## Running the experiments
 
-To train the MLP on MNIST using the four optimizers and log the mutual information data:
+Install the project dependencies and launch the training-and-logging script.
 
 ```bash
-python code/train_ib_analysis.py 
+git clone https://github.com/davidcagoh/information-bottleneck-nested-optimizers
+cd information-bottleneck-nested-optimizers
+pip install -r code/requirements.txt
+python code/train_ib_analysis.py
 ```
 
-## 📚 Related Work
+The script runs the MLP experiments across the configured optimizer set and epoch schedule, producing the mutual-information traces used for the report figures and comparative analysis.
 
-This project builds on prior work in nested learning dynamics and information-theoretic analysis of neural representations.
+## Repository layout
 
-1. **Behrouz, A., Razaviyayn, M., Zhong, P., & Mirrokni, V.** (2025).  
-   *Nested Learning: The Illusion of Deep Learning Architectures.*  
-   arXiv:2512.24695. https://doi.org/10.48550/arXiv.2512.24695
+| Path | Role |
+|---|---|
+| `code/` | Training and analysis scripts for the optimizer experiments |
+| `paper/` | Final report and publication-style figures |
+| Logged outputs | Intermediate results supporting the reported comparisons |
 
-2. **Cheng, P.** (2025).  
-   *Linear95/CLUB* (Jupyter Notebook implementation).  
-   https://github.com/Linear95/CLUB  
-   (Original work published 2020)
+## Reading this repository as a portfolio piece
 
-3. **Cheng, P., Hao, W., Dai, S., Liu, J., Gan, Z., & Carin, L.** (2020).  
-   *CLUB: A Contrastive Log-ratio Upper Bound of Mutual Information.*  
-   arXiv:2006.12013. https://doi.org/10.48550/arXiv.2006.12013
+If you are arriving from the GitHub profile, the intended takeaway is that this repository demonstrates **research-oriented machine learning engineering**. It is not a benchmark leaderboard project and not a polished library package. Instead, it shows the ability to turn a theoretical claim about nested optimization into an executable experiment with interpretable outcomes.
 
-4. **Lyu, Z., Aminian, G., & Rodrigues, M. R. D.** (2023).  
-   *On Neural Networks Fitting, Compression, and Generalization Behavior via Information-Bottleneck-like Approaches.*  
-   *Entropy*, 25(7), 1063. https://doi.org/10.3390/e25071063
+In that sense, **information-bottleneck-nested-optimizers** showcases comparative experiment design, representation-level analysis, and clear technical communication in a compact format.
 
-5. **McCleary, K.** (2026).  
-   *kmccleary3301/nested_learning* (Python implementation).  
-   https://github.com/kmccleary3301/nested_learning  
-   (Original work published 2025)
+## Related work
 
-## Licensing
+This repository builds on prior work in nested learning dynamics and information-theoretic analysis of neural representations.
 
-This project is released under the MIT License. See the `LICENSE` file for details.
+1. **Behrouz, A., Razaviyayn, M., Zhong, P., & Mirrokni, V.** (2025). *Nested Learning: The Illusion of Deep Learning Architectures.* arXiv:2512.24695.
+2. **Cheng, P., Hao, W., Dai, S., Liu, J., Gan, Z., & Carin, L.** (2020). *CLUB: A Contrastive Log-ratio Upper Bound of Mutual Information.* arXiv:2006.12013.
+3. **Lyu, Z., Aminian, G., & Rodrigues, M. R. D.** (2023). *On Neural Networks Fitting, Compression, and Generalization Behavior via Information-Bottleneck-like Approaches.* *Entropy*, 25(7), 1063.
+
+## License
+
+This project is released under the MIT License. See `LICENSE` for details.
